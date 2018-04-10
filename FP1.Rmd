@@ -1,0 +1,270 @@
+---
+title: "Final_Project"
+author: "Yuxuan Liu"
+date: "4/4/2018"
+output: html_document
+---
+
+```{r}
+# import libraries
+library(Matrix)
+library(irlba)
+library(Hmisc)
+```
+
+```{r}
+# import data
+users = read.csv("/Users/Chenjing/Desktop/DM/project/sample_dataset/users.csv", header = TRUE)
+likes = read.csv("/Users/Chenjing/Desktop/DM/project/sample_dataset/likes.csv", header = TRUE)
+userslikes = read.csv("/Users/Chenjing/Desktop/DM/project/sample_dataset/users-likes.csv")
+```
+
+```{r}
+# preprocess data
+# group by likeid
+groupByLikes_SumUsers <- aggregate(userslikes$userid, by=list(userslikes$likeid), FUN=length)
+names(groupByLikes_SumUsers) = c('likeid','numOfUsers')
+```
+
+```{r}
+# Remove Likes associated with fewer than 20 users
+removedLikes <- groupByLikes_SumUsers[groupByLikes_SumUsers$numOfUsers>=20,]
+```
+
+```{r}
+# preprocess data
+# group by userid
+groupByUsers_SumLikes <- aggregate(userslikes$likeid, by=list(userslikes$userid), FUN=length)
+names(groupByUsers_SumLikes) = c('userid','numOfLikes')
+```
+
+```{r}
+# Remove users with fewer than two Likes
+removedUsers <- groupByUsers_SumLikes[groupByUsers_SumLikes$numOfLikes>=2,]
+```
+
+```{r}
+# in df userslikes, remove likes which were removed above
+df_userslikes_reduced <- userslikes[userslikes$likeid %in% removedLikes$likeid,]
+```
+
+```{r}
+# in df userslikes, remove users which were removed above
+df_userslikes_reduced <- df_userslikes_reduced[df_userslikes_reduced$userid %in% removedUsers$userid,]
+```
+
+```{r}
+# add indices in unique users and likes
+rownames(removedLikes) <- 1:nrow(removedLikes)
+rownames(removedUsers) <- 1:nrow(removedUsers)
+removedLikes <- cbind(indexOfLikes = 1:nrow(removedLikes) , removedLikes)
+removedUsers <- cbind(indexOfUsers = 1:nrow(removedUsers) , removedUsers)
+```
+
+```{r}
+# merge unique users and likes to userslikes matrix (translate IDs to integer)
+merged <- merge(removedLikes, userslikes, by = c("likeid"))
+merged <- merge(removedUsers, testMerge, by = c("userid"))
+```
+
+```{r}
+# generate user-like sparse matrix
+spMatrix <- sparseMatrix(i = merged$indexOfUsers, j = merged$indexOfLikes, x=1)
+```
+
+```{r}
+# SVD
+S100 <- irlba(spMatrix, 100)
+u100 <- S$u
+# SVD 30
+S30 <- irlba(spMatrix, 30)
+u30 <- S30$u
+```
+
+```{r}
+# get reduced users' attributes
+removedUsersWithAttributes <- merge(x = removedUsers, y = users, by = c("userid"), all.x = TRUE)
+# removed useless columns: indexOfUsers, numOfLikes
+removedUsersWithAttributes <- subset(removedUsersWithAttributes, select = -c(indexOfUsers,numOfLikes))
+# check the number of NA elements
+summary(removedUsersWithAttributes)
+```
+
+```{r}
+crossvalidation <- function(newdata, linear=FALSE){
+m = length(colnames(newdata))
+if(!linear) {
+  newdata$target = as.factor(newdata$target)
+}
+newdata<-newdata[sample(nrow(newdata)),]
+
+#Create 10 equally size folds
+folds <- cut(seq(1,nrow(newdata)),breaks=10,labels=FALSE)
+result = dim(1)
+
+#Perform 10 fold cross validation
+for(i in 1:10){
+    #Segement data by fold using the which() function 
+    testIndexes <- which(folds==i,arr.ind=TRUE)
+    testData <- newdata[testIndexes, ]
+    trainData <- newdata[-testIndexes, ]
+    if(linear){
+      ml = lm(target~., data = trainData)
+      test.prediction = predict(ml, testData)
+    } else{
+      ml = glm(target~., family = binomial(link = 'logit'),
+             data = trainData)
+      test.prediction = predict(ml, testData,
+                              type = 'response')
+    }
+    test.y = newdata[testIndexes, m]
+    temp = cbind(test.prediction, test.y)
+    result = rbind(result, temp)
+}
+return(result)
+}
+
+evaluation <- function(result){
+  yprobs = result[,1]
+  y = result[,2]
+  cutoff = 0.5
+  ypreds = floor(yprobs + (1-cutoff)) 
+  confusion.matrix = table(y, ypreds)
+  TP = confusion.matrix[2,2] 
+  TN = confusion.matrix[1,1] 
+  FP = confusion.matrix[1,2]
+  FN = confusion.matrix[2,1]
+  accuracy = (TP+TN)/length(y)
+  precision = TP/(FP+TP)
+  recall = TP/(FN+TP)
+  Fscore = 2/(1/precision + 1/recall)
+  
+  library(pROC)
+  auc = auc(y,yprobs)
+  ev = c(accuracy, precision, recall, Fscore, auc) 
+  return(ev)
+}
+```
+
+
+```{r}
+#gender
+dataset_gender = cbind(u100,removedUsersWithAttributes$gender)
+colnames(dataset_gender)<-paste(rep("V",ncol(dataset_gender)),c(1:ncol(dataset_gender)),sep="")
+colnames(dataset_gender)[101] <- "target"
+dataset_gender = as.data.frame(dataset_gender)
+dataset_gender = na.omit(dataset_gender)
+result_gender = crossvalidation(dataset_gender)
+eva_gender = evaluation(result_gender)
+eva_gender
+```
+
+```{r}
+#political
+dataset_political = cbind(u100,removedUsersWithAttributes$political)
+colnames(dataset_political)<-paste(rep("V",ncol(dataset_political)),c(1:ncol(dataset_political)),sep="")
+colnames(dataset_political)[101] <- "target"
+dataset_political = as.data.frame(dataset_political)
+dataset_political = na.omit(dataset_political)
+result_political = crossvalidation(dataset_political)
+eva_political = evaluation(result_political)
+eva_political
+```
+
+```{r}
+#age
+dataset_age = cbind(u100,removedUsersWithAttributes$age)
+colnames(dataset_age)<-paste(rep("V",ncol(dataset_age)),c(1:ncol(dataset_age)),sep="")
+colnames(dataset_age)[101] <- "target"
+dataset_age = as.data.frame(dataset_age)
+dataset_age = na.omit(dataset_age)
+result_age = crossvalidation(dataset_age,linear = TRUE)
+cor_age = cor(result_age)[1,2]
+```
+
+```{r}
+#ope
+dataset_ope = cbind(u100,removedUsersWithAttributes$ope)
+colnames(dataset_ope)<-paste(rep("V",ncol(dataset_ope)),c(1:ncol(dataset_ope)),sep="")
+colnames(dataset_ope)[101] <- "target"
+dataset_ope = as.data.frame(dataset_ope)
+dataset_ope = na.omit(dataset_ope)
+result_ope = crossvalidation(dataset_ope,linear = TRUE)
+cor_ope = cor(result_ope)[1,2]
+```
+
+```{r}
+#con
+dataset_con = cbind(u100,removedUsersWithAttributes$con)
+colnames(dataset_con)<-paste(rep("V",ncol(dataset_con)),c(1:ncol(dataset_con)),sep="")
+colnames(dataset_con)[101] <- "target"
+dataset_con = as.data.frame(dataset_con)
+dataset_con = na.omit(dataset_con)
+result_con = crossvalidation(dataset_con,linear = TRUE)
+cor_con = cor(result_con)[1,2]
+```
+
+```{r}
+#ext
+dataset_ext = cbind(u100,removedUsersWithAttributes$ext)
+colnames(dataset_ext)<-paste(rep("V",ncol(dataset_ext)),c(1:ncol(dataset_ext)),sep="")
+colnames(dataset_ext)[101] <- "target"
+dataset_ext = as.data.frame(dataset_ext)
+dataset_ext = na.omit(dataset_ext)
+result_ext = crossvalidation(dataset_ext,linear = TRUE)
+cor_ext = cor(result_ext)[1,2]
+```
+
+```{r}
+#agr
+dataset_agr = cbind(u100,removedUsersWithAttributes$agr)
+colnames(dataset_agr)<-paste(rep("V",ncol(dataset_agr)),c(1:ncol(dataset_agr)),sep="")
+colnames(dataset_agr)[101] <- "target"
+dataset_agr = as.data.frame(dataset_agr)
+dataset_agr = na.omit(dataset_agr)
+result_agr = crossvalidation(dataset_agr,linear = TRUE)
+cor_agr = cor(result_agr)[1,2]
+```
+
+```{r}
+#neu
+dataset_neu = cbind(u100,removedUsersWithAttributes$neu)
+colnames(dataset_neu)<-paste(rep("V",ncol(dataset_neu)),c(1:ncol(dataset_neu)),sep="")
+colnames(dataset_neu)[101] <- "target"
+dataset_neu = as.data.frame(dataset_neu)
+dataset_neu = na.omit(dataset_neu)
+result_neu = crossvalidation(dataset_neu,linear = TRUE)
+cor_neu = cor(result_neu)[1,2]
+```
+
+```{r}
+result_num = data.frame(
+  . = factor(c("Age","Openness","Conscientiousness","Extraversion","Agreeableness","Emotional Stability"),   levels=c("Age","Openness","Conscientiousness","Extraversion","Agreeableness","Emotional Stability")),
+  PersonCorrelationCoefficient = c(cor_age,cor_ope,cor_con,cor_ext,cor_agr,cor_neu))
+
+ggplot(data=result_num, aes(x=.,y=PersonCorrelationCoefficient)) + 
+  geom_bar(stat = "identity",width =0.5,position = position_stack(reverse = TRUE))+
+  coord_flip()+
+  geom_text(aes(x=.,y=PersonCorrelationCoefficient+0.02),
+                        label=format(result_num$PersonCorrelationCoefficient, digits=2))
+```
+
+```{r}
+result_dich = data.frame(
+  . = factor(c("Gender","Democrat vs.Republican"),   levels=c("Gender","Democrat vs.Republican")),
+  AreaUnderCurve = c(eva_gender[5],eva_political[5]))
+
+ggplot(data=result_dich, aes(x=.,y=AreaUnderCurve)) + 
+  geom_bar(stat = "identity",width =0.5,position = position_stack(reverse = TRUE))+
+  coord_flip()+
+  geom_text(aes(x=.,y=AreaUnderCurve+0.05),
+                        label=format(result_dich$AreaUnderCurve, digits=2))
+```
+
+
+
+
+
+
+
+

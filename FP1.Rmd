@@ -64,7 +64,7 @@ removedUsers <- cbind(indexOfUsers = 1:nrow(removedUsers) , removedUsers)
 ```{r}
 # merge unique users and likes to userslikes matrix (translate IDs to integer)
 merged <- merge(removedLikes, userslikes, by = c("likeid"))
-merged <- merge(removedUsers, testMerge, by = c("userid"))
+merged <- merge(removedUsers, merged, by = c("userid"))
 ```
 
 ```{r}

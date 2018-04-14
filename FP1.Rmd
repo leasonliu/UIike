@@ -10,6 +10,7 @@ output: html_document
 library(Matrix)
 library(irlba)
 library(Hmisc)
+library(pROC)
 ```
 
 ```{r}
@@ -75,7 +76,7 @@ spMatrix <- sparseMatrix(i = merged$indexOfUsers, j = merged$indexOfLikes, x=1)
 ```{r}
 # SVD
 S100 <- irlba(spMatrix, 100)
-u100 <- S$u
+u100 <- S100$u
 # SVD 30
 S30 <- irlba(spMatrix, 30)
 u30 <- S30$u
@@ -180,6 +181,7 @@ dataset_age = as.data.frame(dataset_age)
 dataset_age = na.omit(dataset_age)
 result_age = crossvalidation(dataset_age,linear = TRUE)
 cor_age = cor(result_age)[1,2]
+cor_age
 ```
 
 ```{r}
@@ -191,6 +193,7 @@ dataset_ope = as.data.frame(dataset_ope)
 dataset_ope = na.omit(dataset_ope)
 result_ope = crossvalidation(dataset_ope,linear = TRUE)
 cor_ope = cor(result_ope)[1,2]
+cor_ope
 ```
 
 ```{r}
@@ -202,6 +205,7 @@ dataset_con = as.data.frame(dataset_con)
 dataset_con = na.omit(dataset_con)
 result_con = crossvalidation(dataset_con,linear = TRUE)
 cor_con = cor(result_con)[1,2]
+cor_con
 ```
 
 ```{r}
@@ -213,6 +217,7 @@ dataset_ext = as.data.frame(dataset_ext)
 dataset_ext = na.omit(dataset_ext)
 result_ext = crossvalidation(dataset_ext,linear = TRUE)
 cor_ext = cor(result_ext)[1,2]
+cor_ext
 ```
 
 ```{r}
@@ -224,6 +229,7 @@ dataset_agr = as.data.frame(dataset_agr)
 dataset_agr = na.omit(dataset_agr)
 result_agr = crossvalidation(dataset_agr,linear = TRUE)
 cor_agr = cor(result_agr)[1,2]
+cor_agr
 ```
 
 ```{r}
@@ -235,18 +241,19 @@ dataset_neu = as.data.frame(dataset_neu)
 dataset_neu = na.omit(dataset_neu)
 result_neu = crossvalidation(dataset_neu,linear = TRUE)
 cor_neu = cor(result_neu)[1,2]
+cor_neu
 ```
 
 ```{r}
 result_num = data.frame(
   . = factor(c("Age","Openness","Conscientiousness","Extraversion","Agreeableness","Emotional Stability"),   levels=c("Age","Openness","Conscientiousness","Extraversion","Agreeableness","Emotional Stability")),
-  PersonCorrelationCoefficient = c(cor_age,cor_ope,cor_con,cor_ext,cor_agr,cor_neu))
+  PearsonCorrelationCoefficient = c(cor_age,cor_ope,cor_con,cor_ext,cor_agr,cor_neu))
 
-ggplot(data=result_num, aes(x=.,y=PersonCorrelationCoefficient)) + 
+ggplot(data=result_num, aes(x=.,y=PearsonCorrelationCoefficient, fill=.)) + 
   geom_bar(stat = "identity",width =0.5,position = position_stack(reverse = TRUE))+
   coord_flip()+
-  geom_text(aes(x=.,y=PersonCorrelationCoefficient+0.02),
-                        label=format(result_num$PersonCorrelationCoefficient, digits=2))
+  geom_text(aes(x=.,y=PearsonCorrelationCoefficient+0.02),
+                        label=format(result_num$PearsonCorrelationCoefficient, digits=2)) + guides(fill=FALSE) + xlab("")
 ```
 
 ```{r}
@@ -254,12 +261,141 @@ result_dich = data.frame(
   . = factor(c("Gender","Democrat vs.Republican"),   levels=c("Gender","Democrat vs.Republican")),
   AreaUnderCurve = c(eva_gender[5],eva_political[5]))
 
-ggplot(data=result_dich, aes(x=.,y=AreaUnderCurve)) + 
+ggplot(data=result_dich, aes(x=.,y=AreaUnderCurve, fill=.)) + 
   geom_bar(stat = "identity",width =0.5,position = position_stack(reverse = TRUE))+
   coord_flip()+
   geom_text(aes(x=.,y=AreaUnderCurve+0.05),
-                        label=format(result_dich$AreaUnderCurve, digits=2))
+                        label=format(result_dich$AreaUnderCurve, digits=2)) +
+  guides(fill=FALSE) + xlab("")
 ```
+
+```{r}
+# recount numOfLikes(group by users)
+# group by users
+newNumOfLikes_PerUser <- aggregate(merged$indexOfLikes, by=list(merged$indexOfUsers), FUN=length)
+names(newNumOfLikes_PerUser) = c('indexOfUsers','numOfLikes')
+```
+
+```{r}
+# randomly select 500 users which have >= 300 Likes
+set.seed(0)
+random500Users <- sample(newNumOfLikes_PerUser[newNumOfLikes_PerUser$numOfLikes>=300,]$indexOfUsers, 500)
+# get labels gender, age, and openness for the 500 users
+lbs <- cbind(dataset_gender[random500Users,"target"])
+lbs <- cbind(lbs, dataset_age[random500Users,"target"])
+lbs <- cbind(lbs, dataset_ope[random500Users,"target"])
+colnames(lbs) <- c("gender", "age", "openness")
+lbs <- as.data.frame(lbs)
+```
+
+```{r}
+# build training set
+# remove the 500 users chosen
+tempSparseMatrix <- spMatrix
+tempSparseMatrix <- tempSparseMatrix[-random500Users,]
+# remove 500 users from labels
+removedlbs <- cbind(removedUsersWithAttributes[-random500Users,"gender"],removedUsersWithAttributes[-random500Users,"age"],removedUsersWithAttributes[-random500Users,"ope"])
+colnames(removedlbs) <- c("gender", "age", "openness")
+removedlbs <- as.data.frame(removedlbs)
+# SVD
+S100_train <- irlba(tempSparseMatrix, 100)
+u100_train <- S100_train$u
+# bind u100_train with each label
+train_gender <- cbind(u100_train, removedlbs$gender)
+train_age <- cbind(u100_train, removedlbs$age)
+train_ope <- cbind(u100_train, removedlbs$openness)
+train_gender <- as.data.frame(train_gender)
+train_age <- as.data.frame(train_age)
+train_ope <- as.data.frame(train_ope)
+colnames(train_gender) <- c(1:100,"target")
+colnames(train_age) <- c(1:100,"target")
+colnames(train_ope) <- c(1:100,"target")
+# train models using training set
+trainModels <- function(trainData, linear = T){
+  if(linear){
+      ml = lm(target~., data = trainData)
+      # test.prediction = predict(ml, testData)
+    } else{
+      ml = glm(target~., family = binomial(link = 'logit'),
+             data = trainData)
+      # test.prediction = predict(ml, testData, type = 'response')
+    }
+  return(ml)
+}
+gender_logModel <- trainModels(train_gender, F)
+age_linearModel <- trainModels(train_age, T)
+openness_linearModel <- trainModels(train_ope, T)
+```
+
+```{r}
+# build test set
+# store accuracy
+result_df <- as.data.frame(matrix(0,300,3))
+colnames(result_df) <- c("Gender","Age","Openness")
+# use sparse matrix to store
+df <- spMatrix[random500Users,]
+# get likes from 1 to 300
+for(numOfLikes in seq(from=1,to=300,by=49)){
+  # randomly select numOfLikes likes from every user in random500Users
+  i = 1
+  for(userid in random500Users){
+    likes <- sample(merged[merged$indexOfUsers %in% userid,"indexOfLikes"], numOfLikes)
+    df[i, likes] <- 2
+    i = i + 1
+  }
+  print(numOfLikes)
+  df[df==1] <- 0
+  df[df==2] <- 1
+  # df[489,df[489,]==1]
+  # SVD
+  S100 <- irlba(df, 100)
+  u100 <- S100$u
+  #gender
+  genderSet = cbind(u100,lbs$gender)
+  colnames(genderSet) <- c(1:100,"target")
+  genderSet = as.data.frame(genderSet)
+  pred <- predict(gender_logModel, genderSet[,1:100], type = 'response')
+  auc_gender <- auc(genderSet$target, pred)
+  auc_gender
+  # result_gender = crossvalidation(genderSet)
+  # auc_gender <- auc(genderSet$target, result_gender[,1])
+  # auc_gender
+  #age
+  ageSet = cbind(u100,lbs$age)
+  colnames(ageSet) <- c(1:100,"target")
+  ageSet = as.data.frame(ageSet)
+  pred <- predict(age_linearModel, ageSet[,1:100])
+  corAge = cor(pred, ageSet$target)
+  corAge
+  # result_age = crossvalidation(ageSet,linear = TRUE)
+  # corAge = cor(result_age)[1,2]
+  # corAge
+  #ope
+  opeSet = cbind(u100,lbs$openness)
+  colnames(opeSet) <- c(1:100,"target")
+  opeSet = as.data.frame(opeSet)
+  pred = predict(openness_linearModel, opeSet[,1:100])
+  corOpe = cor(pred, opeSet$target)
+  corOpe
+  # result_ope = crossvalidation(opeSet,linear = TRUE)
+  # corOpe = cor(result_ope)[1,2]
+  # corOpe
+  result_df[numOfLikes,] <- c(auc_gender,corAge,corOpe)
+  print(auc_gender)
+  print(corAge)
+  print(corOpe)
+}
+# write.csv(result_df, './result_df.csv')
+```
+
+
+
+
+
+
+
+
+
 
 
 

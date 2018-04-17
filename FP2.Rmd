@@ -11,6 +11,10 @@ library(Matrix)
 library(irlba)
 library(Hmisc)
 library(pROC)
+library(ggplot2)
+library(xgboost)
+library(gamlr)
+library(glmnet)
 ```
 
 ```{r}
@@ -75,11 +79,14 @@ spMatrix <- sparseMatrix(i = merged$indexOfUsers, j = merged$indexOfLikes, x=1)
 
 ```{r}
 # SVD
-S100 <- irlba(spMatrix, 100)
-u100 <- S$u
+S200 <- irlba(spMatrix, 200)
+u200 <- S200$u
+# SVD
+# S100 <- irlba(spMatrix, 100)
+# u100 <- S100$u
 # SVD 30
-S30 <- irlba(spMatrix, 30)
-u30 <- S30$u
+# S30 <- irlba(spMatrix, 30)
+# u30 <- S30$u
 ```
 
 ```{r}
@@ -92,37 +99,61 @@ summary(removedUsersWithAttributes)
 ```
 
 ```{r}
-crossvalidation <- function(newdata, linear=FALSE){
-m = length(colnames(newdata))
-if(!linear) {
-  newdata$target = as.factor(newdata$target)
-}
-newdata<-newdata[sample(nrow(newdata)),]
+crossvalidation <- function(newdata, type, linear=FALSE){
+  m = length(colnames(newdata))
+  # if(!linear) {
+  #   newdata$target = as.factor(newdata$target)
+  # }
+  newdata<-newdata[sample(nrow(newdata)),]
 
-#Create 10 equally size folds
-folds <- cut(seq(1,nrow(newdata)),breaks=10,labels=FALSE)
-result = dim(1)
-
-#Perform 10 fold cross validation
-for(i in 1:10){
-    #Segement data by fold using the which() function 
-    testIndexes <- which(folds==i,arr.ind=TRUE)
-    testData <- newdata[testIndexes, ]
-    trainData <- newdata[-testIndexes, ]
-    if(linear){
-      ml = lm(target~., data = trainData)
-      test.prediction = predict(ml, testData)
-    } else{
-      ml = glm(target~., family = binomial(link = 'logit'),
-             data = trainData)
-      test.prediction = predict(ml, testData,
-                              type = 'response')
-    }
-    test.y = newdata[testIndexes, m]
-    temp = cbind(test.prediction, test.y)
-    result = rbind(result, temp)
-}
-return(result)
+  #Create 10 equally size folds
+  folds <- cut(seq(1,nrow(newdata)),breaks=10,labels=FALSE)
+  result = dim(1)
+  
+  #Perform 10 fold cross validation
+  for(i in 1:10){
+      #Segement data by fold using the which() function 
+      testIndexes <- which(folds==i,arr.ind=TRUE)
+      testData <- newdata[testIndexes, ]
+      trainData <- newdata[-testIndexes, ]
+      trainY <- newdata[-testIndexes, "target"]
+      if(linear){
+        # ml = lm(target~., data = trainData)
+        dtrain <- xgb.DMatrix(data = as.matrix(trainData)[,(1:ncol(trainData)-1)], label = trainY)
+        if (type == "age") {
+          ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5)
+        } else if (type == "ope") {
+          ml = xgb.train(data = dtrain, nrounds = 10)
+        } else if (type == "con") {
+          ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10)
+        } else if (type == "ext") {
+          ml = xgb.train(data = dtrain, nrounds = 20)
+        } else if (type == "agr") {
+          ml = xgb.train(data = dtrain, nrounds = 10)
+        } else if (type == "neu"){
+          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10)
+        } else {
+          ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5)
+        }
+        test.prediction = predict(ml, as.matrix(testData))
+      } else{
+        # ml = glm(target~., family = binomial(link = 'logit'), data = trainData)
+        dtrain <- xgb.DMatrix(data = as.matrix(trainData)[,(1:ncol(trainData)-1)], label = trainY)
+        if (type == "political") {
+          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic")
+        } else if (type == "gender") {
+          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic")
+        } else {
+          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic")
+        }
+        test.prediction = predict(ml, as.matrix(testData),
+                                type = 'response')
+      }
+      test.y = newdata[testIndexes, m]
+      temp = cbind(test.prediction, test.y)
+      result = rbind(result, temp)
+  }
+  return(result)
 }
 
 evaluation <- function(result){
@@ -140,7 +171,6 @@ evaluation <- function(result){
   recall = TP/(FN+TP)
   Fscore = 2/(1/precision + 1/recall)
   
-  library(pROC)
   auc = auc(y,yprobs)
   ev = c(accuracy, precision, recall, Fscore, auc) 
   return(ev)
@@ -150,92 +180,169 @@ evaluation <- function(result){
 
 ```{r}
 #gender
-dataset_gender = cbind(u100,removedUsersWithAttributes$gender)
+# dataset_gender = cbind(u100,removedUsersWithAttributes$gender)
+dataset_gender = cbind(u200,removedUsersWithAttributes$gender)
 colnames(dataset_gender)<-paste(rep("V",ncol(dataset_gender)),c(1:ncol(dataset_gender)),sep="")
-colnames(dataset_gender)[101] <- "target"
+# colnames(dataset_gender)[101] <- "target"
+colnames(dataset_gender)[201] <- "target"
 dataset_gender = as.data.frame(dataset_gender)
 dataset_gender = na.omit(dataset_gender)
-result_gender = crossvalidation(dataset_gender)
+result_gender = crossvalidation(dataset_gender, "gender")
 eva_gender = evaluation(result_gender)
 eva_gender
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic") auc = 0.8553459 u100
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic") auc = 0.8577786 u200
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, objective = "binary:logistic") auc = 0.8230688 u100
+# ml = xgb.train(data = dtrain, nrounds = 10, objective = "binary:logistic") auc = 0.8235273 u100
+las <- cv.gamlr(x = u100, y = removedUsersWithAttributes$gender, nfold = 10, type.measure = "auc")
+plot(las)
 ```
 
 ```{r}
 #political
-dataset_political = cbind(u100,removedUsersWithAttributes$political)
+# dataset_political = cbind(u100,removedUsersWithAttributes$political)
+dataset_political = cbind(u200,removedUsersWithAttributes$political)
 colnames(dataset_political)<-paste(rep("V",ncol(dataset_political)),c(1:ncol(dataset_political)),sep="")
-colnames(dataset_political)[101] <- "target"
+# colnames(dataset_political)[101] <- "target"
+colnames(dataset_political)[201] <- "target"
 dataset_political = as.data.frame(dataset_political)
 dataset_political = na.omit(dataset_political)
-result_political = crossvalidation(dataset_political)
+result_political = crossvalidation(dataset_political, "political")
 eva_political = evaluation(result_political)
 eva_political
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic") auc = 0.7846683 u100
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic") auc = 0.7913706 u200
+# ml = xgb.train(data = dtrain, nrounds = 10, objective = "binary:logistic") auc = 0.7475825 u200
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, objective = "binary:logistic") auc = 0.7466351 u200
+las <- cv.glmnet(x = as.matrix(dataset_political[,1:(ncol(dataset_political)-1)]), y = dataset_political$target, nfold = 10)
+plot(las)
 ```
 
 ```{r}
 #age
-dataset_age = cbind(u100,removedUsersWithAttributes$age)
+# dataset_age = cbind(u100,removedUsersWithAttributes$age)
+dataset_age = cbind(u200,removedUsersWithAttributes$age)
 colnames(dataset_age)<-paste(rep("V",ncol(dataset_age)),c(1:ncol(dataset_age)),sep="")
-colnames(dataset_age)[101] <- "target"
+# colnames(dataset_age)[101] <- "target"
+colnames(dataset_age)[201] <- "target"
 dataset_age = as.data.frame(dataset_age)
 dataset_age = na.omit(dataset_age)
-result_age = crossvalidation(dataset_age,linear = TRUE)
+result_age = crossvalidation(dataset_age, "age", linear = TRUE)
 cor_age = cor(result_age)[1,2]
+cor_age
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5) u100 cor = 0.550183
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5) u200 cor = 0.5540191
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, eta = 0.5) u100 cor = 0.3859554
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5) u100 cor = 0.5515898
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5) u200 cor = 0.5548858
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.1) u200 cor = 0.5165256
+# ml = xgb.train(data = dtrain, nrounds = 10) u200 cor = 0.5516858
+# ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.5491897
+# lasso
+las <- cv.gamlr(x = u100, y = removedUsersWithAttributes$age, nfold = 10)
+plot(las)
 ```
 
 ```{r}
 #ope
 dataset_ope = cbind(u100,removedUsersWithAttributes$ope)
+# dataset_ope = cbind(u200,removedUsersWithAttributes$ope)
 colnames(dataset_ope)<-paste(rep("V",ncol(dataset_ope)),c(1:ncol(dataset_ope)),sep="")
 colnames(dataset_ope)[101] <- "target"
+# colnames(dataset_ope)[201] <- "target"
 dataset_ope = as.data.frame(dataset_ope)
 dataset_ope = na.omit(dataset_ope)
-result_ope = crossvalidation(dataset_ope,linear = TRUE)
+result_ope = crossvalidation(dataset_ope, "ope", linear = TRUE)
 cor_ope = cor(result_ope)[1,2]
+cor_ope
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5) u100 cor = 0.3707394
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5) u200 cor = 0.3698967
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.1) u100 cor = 0.3550512
+# ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.3733593
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5) u100 cor = 0.369195
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5) u200 cor = 0.3667087
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, eta = 0.5) u100 cor = 0.3337835
 ```
 
 ```{r}
 #con
 dataset_con = cbind(u100,removedUsersWithAttributes$con)
+# dataset_con = cbind(u200,removedUsersWithAttributes$con)
 colnames(dataset_con)<-paste(rep("V",ncol(dataset_con)),c(1:ncol(dataset_con)),sep="")
 colnames(dataset_con)[101] <- "target"
+# colnames(dataset_con)[201] <- "target"
 dataset_con = as.data.frame(dataset_con)
 dataset_con = na.omit(dataset_con)
-result_con = crossvalidation(dataset_con,linear = TRUE)
+result_con = crossvalidation(dataset_con, "con", linear = TRUE)
 cor_con = cor(result_con)[1,2]
+cor_con
+# ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.2267511
+# ml = xgb.train(data = dtrain, nrounds = 10) u200 cor = 0.2267896
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5) u100 cor = 0.214034
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u100 cor = 0.2270478
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.1) u100 cor = 0.2212934
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10) u100 cor = 0.1782923
 ```
 
 ```{r}
 #ext
 dataset_ext = cbind(u100,removedUsersWithAttributes$ext)
+# dataset_ext = cbind(u200,removedUsersWithAttributes$ext)
 colnames(dataset_ext)<-paste(rep("V",ncol(dataset_ext)),c(1:ncol(dataset_ext)),sep="")
 colnames(dataset_ext)[101] <- "target"
+# colnames(dataset_ext)[201] <- "target"
 dataset_ext = as.data.frame(dataset_ext)
 dataset_ext = na.omit(dataset_ext)
-result_ext = crossvalidation(dataset_ext,linear = TRUE)
+result_ext = crossvalidation(dataset_ext, "ext", linear = TRUE)
 cor_ext = cor(result_ext)[1,2]
+cor_ext
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u100 cor = 0.2270245
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u200 cor = 0.2260787
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.1) u100 cor = 0.2218307
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5) u100 cor = 0.2207755
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10) u100 cor = 0.01918086
+# ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.2278871
+# ml = xgb.train(data = dtrain, nrounds = 10) u200 cor = 0.2253579
+# ml = xgb.train(data = dtrain, nrounds = 20) u100 cor = 0.2361943
 ```
 
 ```{r}
 #agr
 dataset_agr = cbind(u100,removedUsersWithAttributes$agr)
+# dataset_agr = cbind(u200,removedUsersWithAttributes$agr)
 colnames(dataset_agr)<-paste(rep("V",ncol(dataset_agr)),c(1:ncol(dataset_agr)),sep="")
 colnames(dataset_agr)[101] <- "target"
+# colnames(dataset_agr)[201] <- "target"
 dataset_agr = as.data.frame(dataset_agr)
 dataset_agr = na.omit(dataset_agr)
-result_agr = crossvalidation(dataset_agr,linear = TRUE)
+result_agr = crossvalidation(dataset_agr, "agr", linear = TRUE)
 cor_agr = cor(result_agr)[1,2]
+cor_agr
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u100 cor = 0.1779055
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u200 cor = 0.1769623
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10) u100 cor = 0.09794448
+# ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.1799993
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.1) u100 cor = 0.1769003
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5) u100 cor = 0.1703674
 ```
 
 ```{r}
 #neu
 dataset_neu = cbind(u100,removedUsersWithAttributes$neu)
+# dataset_neu = cbind(u200,removedUsersWithAttributes$neu)
 colnames(dataset_neu)<-paste(rep("V",ncol(dataset_neu)),c(1:ncol(dataset_neu)),sep="")
 colnames(dataset_neu)[101] <- "target"
+# colnames(dataset_neu)[201] <- "target"
 dataset_neu = as.data.frame(dataset_neu)
 dataset_neu = na.omit(dataset_neu)
-result_neu = crossvalidation(dataset_neu,linear = TRUE)
+result_neu = crossvalidation(dataset_neu, "neu", linear = TRUE)
 cor_neu = cor(result_neu)[1,2]
+cor_neu
+# ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.2152058
+# ml = xgb.train(data = dtrain, nrounds = 10) u200 cor = 0.2144596
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u100 cor = 0.2123988
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10) u100 cor = 0.02255954
+# ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.1) u100 cor = 0.1743717
 ```
 
 ```{r}
@@ -290,29 +397,63 @@ tempSparseMatrix <- tempSparseMatrix[-random500Users,]
 removedlbs <- cbind(removedUsersWithAttributes[-random500Users,"gender"],removedUsersWithAttributes[-random500Users,"age"],removedUsersWithAttributes[-random500Users,"ope"])
 colnames(removedlbs) <- c("gender", "age", "openness")
 removedlbs <- as.data.frame(removedlbs)
-# 
+# use sparse matrix to store
 df <- spMatrix[random500Users,]
-i = 1
-for(userid in random500Users){
-  likes <- sample(merged[merged$indexOfUsers %in% userid,"indexOfLikes"], 50)
-  df[i, likes] <- 2
-  i = i + 1
-  print(i)
+# store accuracy 61 rows to stroe (1,5,10,15,...,295,300)
+# result_df <- as.data.frame(matrix(0,61,3))
+# colnames(result_df) <- c("Gender","Age","Openness")
+# get likes from 1 to 300
+for(numOfLikes in seq(from=155,to=300,by=5)){
+  # randomly select numOfLikes likes from every user in random500Users
+  i = 1
+  for(userid in random500Users){
+    likes <- sample(merged[merged$indexOfUsers %in% userid,"indexOfLikes"], numOfLikes)
+    df[i, likes] <- 2
+    i = i + 1
+    print(i)
+  }
+  df[df==1] <- 0
+  df[df==2] <- 1
+  # SVD
+  S100_train <- irlba(rbind(tempSparseMatrix,df), 100)
+  u100_train <- S100_train$u
+  u100_train <- as.data.frame(u100_train)
+  testIndex <- (nrow(u100_train)-500+1):nrow(u100_train)
+  # gender
+  ml = glm(removedlbs$gender~., family = binomial(link = 'logit'), data = u100_train[-testIndex,])
+  pred = predict(ml, u100_train[testIndex,], type = 'response')
+  auc_gender <- auc(lbs$gender, pred)
+  # age
+  ml = lm(removedlbs$age~., data = u100_train[-testIndex,])
+  pred = predict(ml, u100_train[testIndex,])
+  corAge = cor(pred, lbs$age)
+  corAge
+  # ope
+  ml = lm(removedlbs$openness~., data = u100_train[-testIndex,])
+  pred = predict(ml, u100_train[testIndex,])
+  corOpe = cor(pred, lbs$openness)
+  corOpe
+  # record accuracy
+  # result_df[numOfLikes/5+1,] <- c(auc_gender,corAge,corOpe)
+  print(numOfLikes)
+  print(auc_gender)
+  print(corAge)
+  print(corOpe)
 }
-df[df==1] <- 0
-df[df==2] <- 1
-# SVD
-S100_train <- irlba(rbind(tempSparseMatrix,df), 100)
-u100_train <- S100_train$u
-# 
-trainY <- c(removedlbs$age, lbs$age)
-train <- cbind(u100_train,trainY)
-train <- as.data.frame(train)
-ml = lm(trainY~., data = train[1:(nrow(train)-500),])
-test.prediction = predict(ml, train[(nrow(train)-500+1):nrow(train),])
-auc_age <- auc(lbs$age, test.prediction)
-auc_age
+group <- c("Gender","Age","Openness")
+xaxis <- c(1,seq(from=5,to=300,by=5))
+for (i in 1:nrow(result_df)) {
+  for (j in (i*3-2):(i*3)) {
+    newResult_df[j,] <- c(xaxis[i],result_df[i,(j-(i*3-2)+1)],group[(j-(i*3-2)+1)])
+  }
+}
+# write.csv(newResult_df, './newResult_df.csv')
 ```
+
+```{r}
+# ggplot(newResult_df, aes(x=X, y=Y, group=Group)) + geom_line(size=1)
+```
+
 
 
 

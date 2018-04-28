@@ -82,11 +82,15 @@ spMatrix <- sparseMatrix(i = merged$indexOfUsers, j = merged$indexOfLikes, x=1)
 S200 <- irlba(spMatrix, 200)
 u200 <- S200$u
 # SVD
-# S100 <- irlba(spMatrix, 100)
-# u100 <- S100$u
+S100 <- irlba(spMatrix, 100)
+u100 <- S100$u
 # SVD 30
 # S30 <- irlba(spMatrix, 30)
 # u30 <- S30$u
+
+# plot(S100$d^2/sum(S100$d^2), type = "b", pch = 16, xlab = "principal components", 
+#     ylab = "variance explained")
+# plot(cumsum(S100$d^2)/sum(S100$d^2)*100,ylab="Percent variability explained",ylim=c(0,100),type="l")
 ```
 
 ```{r}
@@ -121,17 +125,17 @@ crossvalidation <- function(newdata, type, linear=FALSE){
         # ml = lm(target~., data = trainData)
         dtrain <- xgb.DMatrix(data = as.matrix(trainData)[,(1:ncol(trainData)-1)], label = trainY)
         if (type == "age") {
-          ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5)
+          ml = xgb.train(data = dtrain, nrounds = 50, eta = 0.5)
         } else if (type == "ope") {
-          ml = xgb.train(data = dtrain, nrounds = 10)
+          ml = xgb.train(data = dtrain, nrounds = 50)
         } else if (type == "con") {
-          ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10)
+          ml = xgb.train(data = dtrain, booster = "dart", nrounds = 50)
         } else if (type == "ext") {
-          ml = xgb.train(data = dtrain, nrounds = 20)
+          ml = xgb.train(data = dtrain, nrounds = 50)
         } else if (type == "agr") {
-          ml = xgb.train(data = dtrain, nrounds = 10)
+          ml = xgb.train(data = dtrain, nrounds = 50)
         } else if (type == "neu"){
-          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10)
+          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 50)
         } else {
           ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5)
         }
@@ -140,9 +144,9 @@ crossvalidation <- function(newdata, type, linear=FALSE){
         # ml = glm(target~., family = binomial(link = 'logit'), data = trainData)
         dtrain <- xgb.DMatrix(data = as.matrix(trainData)[,(1:ncol(trainData)-1)], label = trainY)
         if (type == "political") {
-          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic")
+          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 50, objective = "binary:logistic")
         } else if (type == "gender") {
-          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic")
+          ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 50, objective = "binary:logistic")
         } else {
           ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic")
         }
@@ -180,11 +184,11 @@ evaluation <- function(result){
 
 ```{r}
 #gender
-# dataset_gender = cbind(u100,removedUsersWithAttributes$gender)
-dataset_gender = cbind(u200,removedUsersWithAttributes$gender)
+dataset_gender = cbind(u100,removedUsersWithAttributes$gender)
+# dataset_gender = cbind(u200,removedUsersWithAttributes$gender)
 colnames(dataset_gender)<-paste(rep("V",ncol(dataset_gender)),c(1:ncol(dataset_gender)),sep="")
-# colnames(dataset_gender)[101] <- "target"
-colnames(dataset_gender)[201] <- "target"
+colnames(dataset_gender)[101] <- "target"
+# colnames(dataset_gender)[201] <- "target"
 dataset_gender = as.data.frame(dataset_gender)
 dataset_gender = na.omit(dataset_gender)
 result_gender = crossvalidation(dataset_gender, "gender")
@@ -194,17 +198,18 @@ eva_gender
 # ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic") auc = 0.8577786 u200
 # ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, objective = "binary:logistic") auc = 0.8230688 u100
 # ml = xgb.train(data = dtrain, nrounds = 10, objective = "binary:logistic") auc = 0.8235273 u100
-las <- cv.gamlr(x = u100, y = removedUsersWithAttributes$gender, nfold = 10, type.measure = "auc")
-plot(las)
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 50, objective = "binary:logistic") auc = 0.8583117 u100
+# las <- cv.gamlr(x = u100, y = removedUsersWithAttributes$gender, nfold = 10, type.measure = "auc")
+# plot(las)
 ```
 
 ```{r}
 #political
-# dataset_political = cbind(u100,removedUsersWithAttributes$political)
-dataset_political = cbind(u200,removedUsersWithAttributes$political)
+dataset_political = cbind(u100,removedUsersWithAttributes$political)
+# dataset_political = cbind(u200,removedUsersWithAttributes$political)
 colnames(dataset_political)<-paste(rep("V",ncol(dataset_political)),c(1:ncol(dataset_political)),sep="")
-# colnames(dataset_political)[101] <- "target"
-colnames(dataset_political)[201] <- "target"
+colnames(dataset_political)[101] <- "target"
+# colnames(dataset_political)[201] <- "target"
 dataset_political = as.data.frame(dataset_political)
 dataset_political = na.omit(dataset_political)
 result_political = crossvalidation(dataset_political, "political")
@@ -214,17 +219,18 @@ eva_political
 # ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, objective = "binary:logistic") auc = 0.7913706 u200
 # ml = xgb.train(data = dtrain, nrounds = 10, objective = "binary:logistic") auc = 0.7475825 u200
 # ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, objective = "binary:logistic") auc = 0.7466351 u200
-las <- cv.glmnet(x = as.matrix(dataset_political[,1:(ncol(dataset_political)-1)]), y = dataset_political$target, nfold = 10)
-plot(las)
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 50, objective = "binary:logistic") auc = 0.7856454 u100
+# las <- cv.glmnet(x = as.matrix(dataset_political[,1:(ncol(dataset_political)-1)]), y = dataset_political$target, nfold = 10)
+# plot(las)
 ```
 
 ```{r}
 #age
-# dataset_age = cbind(u100,removedUsersWithAttributes$age)
-dataset_age = cbind(u200,removedUsersWithAttributes$age)
+dataset_age = cbind(u100,removedUsersWithAttributes$age)
+# dataset_age = cbind(u200,removedUsersWithAttributes$age)
 colnames(dataset_age)<-paste(rep("V",ncol(dataset_age)),c(1:ncol(dataset_age)),sep="")
-# colnames(dataset_age)[101] <- "target"
-colnames(dataset_age)[201] <- "target"
+colnames(dataset_age)[101] <- "target"
+# colnames(dataset_age)[201] <- "target"
 dataset_age = as.data.frame(dataset_age)
 dataset_age = na.omit(dataset_age)
 result_age = crossvalidation(dataset_age, "age", linear = TRUE)
@@ -238,9 +244,10 @@ cor_age
 # ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.1) u200 cor = 0.5165256
 # ml = xgb.train(data = dtrain, nrounds = 10) u200 cor = 0.5516858
 # ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.5491897
+# ml = xgb.train(data = dtrain, nrounds = 50, eta = 0.5) u100 cor = 0.5729826
 # lasso
-las <- cv.gamlr(x = u100, y = removedUsersWithAttributes$age, nfold = 10)
-plot(las)
+# las <- cv.gamlr(x = u100, y = removedUsersWithAttributes$age, nfold = 10)
+# plot(las)
 ```
 
 ```{r}
@@ -262,6 +269,7 @@ cor_ope
 # ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5) u100 cor = 0.369195
 # ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.5) u200 cor = 0.3667087
 # ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10, eta = 0.5) u100 cor = 0.3337835
+# ml = xgb.train(data = dtrain, nrounds = 50) u100 cor = 0.3870955
 ```
 
 ```{r}
@@ -282,6 +290,7 @@ cor_con
 # ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u100 cor = 0.2270478
 # ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10, eta = 0.1) u100 cor = 0.2212934
 # ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10) u100 cor = 0.1782923
+# ml = xgb.train(data = dtrain, booster = "dart", nrounds = 50) u100 cor = 0.2244822
 ```
 
 ```{r}
@@ -304,6 +313,7 @@ cor_ext
 # ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.2278871
 # ml = xgb.train(data = dtrain, nrounds = 10) u200 cor = 0.2253579
 # ml = xgb.train(data = dtrain, nrounds = 20) u100 cor = 0.2361943
+# ml = xgb.train(data = dtrain, nrounds = 50) u100 cor = 0.2343163
 ```
 
 ```{r}
@@ -324,6 +334,7 @@ cor_agr
 # ml = xgb.train(data = dtrain, nrounds = 10) u100 cor = 0.1799993
 # ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.1) u100 cor = 0.1769003
 # ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.5) u100 cor = 0.1703674
+# ml = xgb.train(data = dtrain, nrounds = 50) u100 cor = 0.1772203
 ```
 
 ```{r}
@@ -343,6 +354,7 @@ cor_neu
 # ml = xgb.train(data = dtrain, booster = "dart", nrounds = 10) u100 cor = 0.2123988
 # ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 10) u100 cor = 0.02255954
 # ml = xgb.train(data = dtrain, nrounds = 10, eta = 0.1) u100 cor = 0.1743717
+# ml = xgb.train(data = dtrain, booster = "gblinear", nrounds = 50) u100 cor = 0.2227634
 ```
 
 ```{r}
@@ -451,7 +463,21 @@ for (i in 1:nrow(result_df)) {
 ```
 
 ```{r}
-# ggplot(newResult_df, aes(x=X, y=Y, group=Group)) + geom_line(size=1)
+ggplot(users, aes(x=gender)) +
+    geom_histogram(binwidth=.5)
+ggplot(users, aes(x=age)) +
+    geom_histogram(binwidth=.5)
+ggplot(users, aes(x=ope)) +
+    geom_histogram(binwidth=.5)
+ggplot(users, aes(x=con)) +
+    geom_histogram(binwidth=.5)
+ggplot(users, aes(x=ext)) +
+    geom_histogram(binwidth=.5)
+ggplot(users, aes(x=agr)) +
+    geom_histogram(binwidth=.5)
+ggplot(users, aes(x=neu)) +
+    geom_histogram(binwidth=.5)
+length(users[users$political==NA,"political"])
 ```
 
 
